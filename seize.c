@@ -52,9 +52,9 @@ err:
 	return NULL;
 }
 
-static bool freezer_thawed;
+bool freezer_thawed;
 
-static int freezer_restore_state(void)
+int freezer_restore_state(void)
 {
 	int fd;
 	char path[PATH_MAX];

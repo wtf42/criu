@@ -1736,6 +1736,26 @@ static void ignore_kids(void)
 		pr_perror("Restoring CHLD sigaction failed");
 }
 
+
+void my_log_time() {
+	printf("time after freeze:\n");
+	struct timeval a;
+	gettimeofday(&a, 0);
+	printf("%u.%u\n", (unsigned)a.tv_sec, (unsigned)a.tv_usec);
+	fflush(stdout);
+}
+
+
+extern bool freezer_thawed;
+extern int freezer_restore_state(void);
+
+static int my_freeze_cgroup() {
+	freezer_thawed = 0;
+	freezer_restore_state();
+	my_log_time();
+	return 0;
+}
+
 static int restore_root_task(struct pstree_item *init)
 {
 	enum trace_flags flag = TRACE_ALL;
@@ -1901,6 +1921,12 @@ static int restore_root_task(struct pstree_item *init)
 	 * they continue run through sigreturn.
 	 */
 	finalize_restore(ret);
+
+	/*
+	 * TODO: restore frozen cgroup state
+	 */
+	my_freeze_cgroup();
+
 
 	write_stats(RESTORE_STATS);
 
