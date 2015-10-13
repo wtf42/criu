@@ -1049,6 +1049,14 @@ static int restore_special_cpuset_props(char *paux, size_t off, CgroupDirEntry *
 	return 0;
 }
 
+int freezer_dir_set = 0;
+char saved_freezer_dir[PATH_MAX];
+static void save_freezer_dir(char *dir_name)
+{
+	strcpy(saved_freezer_dir, dir_name);
+	freezer_dir_set = 1;
+}
+
 static int prepare_cgroup_dirs(char **controllers, int n_controllers, char *paux, size_t off,
 				CgroupDirEntry **ents, size_t n_ents)
 {
@@ -1102,6 +1110,12 @@ static int prepare_cgroup_dirs(char **controllers, int n_controllers, char *paux
 					e->properties = NULL;
 					e->n_properties = 0;
 				}
+			}
+		}
+
+		for (j = 0; j < n_controllers; j++) {
+			if (strcmp(controllers[j], "freezer") == 0) {
+				save_freezer_dir(e->dir_name);
 			}
 		}
 

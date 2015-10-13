@@ -1736,23 +1736,33 @@ static void ignore_kids(void)
 		pr_perror("Restoring CHLD sigaction failed");
 }
 
+extern int freezer_dir_set;
+extern char saved_freezer_dir[PATH_MAX];
+extern const char frozen[7];
 
-void my_log_time() {
-	printf("time after freeze:\n");
-	struct timeval a;
-	gettimeofday(&a, 0);
-	printf("%u.%u\n", (unsigned)a.tv_sec, (unsigned)a.tv_usec);
-	fflush(stdout);
-}
+static int freeze_saved_cgroup() {
+	if (!freezer_dir_set) {
+		return 0;
+	}
 
+	int fd;
+	char path[PATH_MAX];
 
-extern bool freezer_thawed;
-extern int freezer_restore_state(void);
+	pr_info("freeze cgroup: %s\n", saved_freezer_dir);
 
-static int my_freeze_cgroup() {
-	freezer_thawed = 0;
-	freezer_restore_state();
-	my_log_time();
+	snprintf(path, sizeof(path), "/sys/fs/cgroup/freezer/%s/freezer.state", saved_freezer_dir);
+	fd = open(path, O_RDWR);
+	if (fd < 0) {
+		pr_perror("Unable to open %s", path);
+		return -1;
+	}
+
+	if (write(fd, frozen, sizeof(frozen)) != sizeof(frozen)) {
+		pr_perror("Unable to freeze tasks");
+		close(fd);
+		return -1;
+	}
+	close(fd);
 	return 0;
 }
 
@@ -1925,7 +1935,7 @@ static int restore_root_task(struct pstree_item *init)
 	/*
 	 * TODO: restore frozen cgroup state
 	 */
-	my_freeze_cgroup();
+	freeze_saved_cgroup();
 
 
 	write_stats(RESTORE_STATS);
