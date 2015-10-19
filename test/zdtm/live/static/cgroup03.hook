@@ -1,0 +1,22 @@
+#!/bin/bash
+
+if [[ "$1" == "--pre-restore" ]]; then
+	echo "*****PRE*****"
+	for i in $DUMP_PATH/core-*.img; do
+		pid=`expr "$i" : '.*/core-\([0-9]*\).img'`
+		`dirname $CRIU`/crit decode < "$i" | grep -oP "(?<=\"ip\":\s)\d*(?=,)"
+	done
+fi
+
+if [[ "$1" == "--post-restore" ]]; then
+	echo "*****POST*****"
+	for i in $DUMP_PATH/core-*.img; do
+		pid=`expr "$i" : '.*/core-\([0-9]*\).img'`
+		cat /proc/$pid/stat | awk '{print $30}'
+	done
+fi
+
+if [[ "$1" == "--clean" ]]; then
+	echo "*****CLEAN*****"
+fi
+

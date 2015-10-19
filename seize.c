@@ -54,7 +54,12 @@ err:
 
 bool freezer_thawed;
 
-int freezer_restore_state(void)
+const char *get_real_freezer_state(void)
+{
+	return freezer_thawed ? thawed : frozen;
+}
+
+static int freezer_restore_state(void)
 {
 	int fd;
 	char path[PATH_MAX];

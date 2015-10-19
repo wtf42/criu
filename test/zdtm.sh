@@ -204,6 +204,7 @@ generate_test_list()
 		static/cgroup00
 		static/cgroup01
 		static/cgroup02
+		static/cgroup03
 		ns/static/clean_mntns
 		static/remap_dead_pid
 		static/poll
@@ -338,6 +339,7 @@ inotify_irmap
 cgroup00
 cgroup01
 cgroup02
+cgroup03
 clean_mntns
 deleted_dev
 mntns_open
@@ -753,6 +755,7 @@ EOF
 		DUMP_PATH=$ddump
 		echo Dump $PID
 		mkdir -p $ddump
+		export DUMP_PATH
 
 		[ -n "$DUMP_ONLY" ] && dump_only=1
 
@@ -855,6 +858,8 @@ EOF
 				done
 			done
 
+			export CRIU
+
 			if [ -x "${test}.hook" ]; then
 				echo "Executing pre-restore hook"
 				"${test}.hook" --pre-restore || return 2
@@ -875,6 +880,12 @@ EOF
 				diff_fds $ddump/dump.fd $ddump/restore.fd || return 2
 				diff_maps $ddump/dump.maps $ddump/restore.maps || return 2
 			}
+
+			if [ -x "${test}.hook" ]; then
+				echo "Executing post-restore hook"
+				"${test}.hook" --post-restore || return 2
+			fi
+
 			[ "$CLEANUP" -ne 0 ] && rm -f --one-file-system $ddump/pages-*.img
 		fi
 

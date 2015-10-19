@@ -11,6 +11,9 @@ int prepare_cgroup(void);
 int prepare_cgroup_properties(void);
 void fini_cgroup(void);
 
+int restore_freezer_state(void);
+extern const char *get_real_freezer_state(void);
+
 struct cg_controller;
 
 struct cgroup_prop {

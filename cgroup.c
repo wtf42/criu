@@ -75,6 +75,7 @@ static const char *blkio_props[] = {
 };
 
 static const char *freezer_props[] = {
+	"freezer.state",
 	"notify_on_release",
 	NULL
 };
@@ -421,6 +422,13 @@ static int add_cgroup_properties(const char *fpath, struct cgroup_dir *ncd,
 				free_cgroup_prop(prop);
 				free_all_cgroup_props(ncd);
 				return -1;
+			}
+
+			if (opts.freeze_cgroup && 
+					strcmp(controller->controllers[i], "freezer") == 0 &&
+					strcmp(prop_arr[j], "freezer.state") == 0) {
+				xfree(prop->value);
+				prop->value = xstrdup(get_real_freezer_state());
 			}
 
 			pr_info("Dumping value %s from %s/%s\n", prop->value, fpath, prop->name);
@@ -982,6 +990,26 @@ static int restore_cgroup_prop(const CgroupPropEntry * cg_prop_entry_p,
 	return 0;
 }
 
+
+static char   freezer_path[PATH_MAX];
+static size_t freezer_len = 0;
+static CgroupPropEntry *freezer_prop_entry = NULL;
+
+int restore_freezer_state(void)
+{
+	if (freezer_prop_entry == NULL)
+		return -1;
+	return restore_cgroup_prop(freezer_prop_entry,
+				   freezer_path, freezer_len);
+}
+
+static void save_freezer_state(CgroupPropEntry *entry, char *path, size_t off)
+{
+	freezer_prop_entry = entry;
+	freezer_len = off;
+	strncpy(freezer_path, path, off);
+}
+
 static int prepare_cgroup_dir_properties(char *path, int off, CgroupDirEntry **ents,
 					 unsigned int n_ents)
 {
@@ -997,6 +1025,10 @@ static int prepare_cgroup_dir_properties(char *path, int off, CgroupDirEntry **e
 		off2 += sprintf(path + off, "/%s", e->dir_name);
 		if (e->n_properties > 0) {
 			for (j = 0; j < e->n_properties; ++j) {
+				if (strcmp(e->properties[j]->name, "freezer.state") == 0) {
+					save_freezer_state(e->properties[j], path, off2);
+					continue; /* skip restore now */
+				}
 				if (restore_cgroup_prop(e->properties[j], path, off2) < 0)
 					return -1;
 			}

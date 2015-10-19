@@ -129,6 +129,7 @@ TST_NOFILE	=				\
 		seccomp_strict			\
 		different_creds			\
 		vsx				\
+		cgroup03			\
 #		jobctl00			\
 
 TST_FILE	=				\
