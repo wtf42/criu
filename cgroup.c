@@ -16,6 +16,7 @@
 #include "util.h"
 #include "imgset.h"
 #include "util-pie.h"
+#include "seize.h"
 #include "protobuf.h"
 #include "protobuf/core.pb-c.h"
 #include "protobuf/cgroup.pb-c.h"
@@ -75,6 +76,7 @@ static const char *blkio_props[] = {
 };
 
 static const char *freezer_props[] = {
+	"freezer.state",
 	"notify_on_release",
 	NULL
 };
@@ -421,6 +423,21 @@ static int add_cgroup_properties(const char *fpath, struct cgroup_dir *ncd,
 				free_cgroup_prop(prop);
 				free_all_cgroup_props(ncd);
 				return -1;
+			}
+
+			if (opts.freeze_cgroup && 
+					strcmp(controller->controllers[i], "freezer") == 0 &&
+					strcmp(prop_arr[j], "freezer.state") == 0) {
+				const char *cgroup_name = strrchr(fpath, '/');
+				if (cgroup_name == NULL)
+					cgroup_name = fpath;
+				const char *opts_cgroup_name = strrchr(opts.freeze_cgroup, '/');
+				if (opts_cgroup_name == NULL)
+					opts_cgroup_name = opts.freeze_cgroup;
+				if (strcmp(cgroup_name, opts_cgroup_name) == 0) {
+					xfree(prop->value);
+					prop->value = xstrdup(get_real_freezer_state());
+				}
 			}
 
 			pr_info("Dumping value %s from %s/%s\n", prop->value, fpath, prop->name);
