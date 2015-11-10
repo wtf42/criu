@@ -16,6 +16,7 @@
 #include "util.h"
 #include "imgset.h"
 #include "util-pie.h"
+#include "seize.h"
 #include "protobuf.h"
 #include "protobuf/core.pb-c.h"
 #include "protobuf/cgroup.pb-c.h"
@@ -818,6 +819,27 @@ int dump_cgroups(void)
 
 	pr_info("Writing CG image\n");
 	return pb_write_one(img_from_set(glob_imgset, CR_FD_CGROUP), &cg, PB_CGROUP);
+}
+
+const char freezer_state_file[] = "freezer_state.txt";
+int save_real_freezer_state(void)
+{
+	int fd, err;
+	const char* state = get_real_freezer_state();
+
+	err = fd = openat(get_service_fd(IMG_FD_OFF),
+			freezer_state_file, O_WRONLY | O_CREAT);
+	if (fd >= 0) {
+		err = write(fd, state, strlen(state));
+		close(fd);
+	}
+
+	if (err < 0) {
+		pr_err("Failed to save freezer state\n");
+		return -1;
+	}
+
+	return 0;
 }
 
 static int ctrl_dir_and_opt(CgControllerEntry *ctl, char *dir, int ds,
