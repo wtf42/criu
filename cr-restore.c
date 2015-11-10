@@ -1862,7 +1862,6 @@ static int restore_root_task(struct pstree_item *init)
 		goto out_kill;
 
 	ret = prepare_cgroup_properties();
-	fini_cgroup();
 	if (ret < 0)
 		goto out_kill;
 
@@ -1905,8 +1904,11 @@ static int restore_root_task(struct pstree_item *init)
 	if (clear_breakpoints())
 		pr_err("Unable to flush breakpoints\n");
 
-	if (ret == 0)
+	if (ret == 0) {
 		finalize_restore();
+		ret = restore_freezer_state();
+	}
+	fini_cgroup();
 
 	/* Detaches from processes and they continue run through sigreturn. */
 	finalize_restore_detach(ret);

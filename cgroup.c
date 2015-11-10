@@ -842,6 +842,62 @@ int save_real_freezer_state(void)
 	return 0;
 }
 
+int restore_freezer_state(void)
+{
+	int fd, err, cgfd, i, j;
+	char state[8];
+	int sfd = get_service_fd(IMG_FD_OFF);
+
+	if (faccessat(sfd, freezer_state_file, F_OK, 0) < 0)
+		return 0;
+
+	err = fd = openat(sfd, freezer_state_file, O_RDONLY);
+	if (fd >= 0) {
+		err = read(fd, state, sizeof(state));
+		close(fd);
+	}
+
+	if (err < 0) {
+		pr_err("Can't load freezer state\n");
+		return -1;
+	}
+
+	if (strcmp(state, "FROZEN") != 0)
+		return 0;
+
+	cgfd = get_service_fd(CGROUP_YARD);
+
+	for (i = 0; i < n_controllers; i++) {
+		CgControllerEntry *ctrl = controllers[i];
+		CgroupDirEntry *entry;
+		char paux[PATH_MAX];
+
+		for (j = 0; j < ctrl->n_cnames; j++) {
+			if (strcmp(ctrl->cnames[j], "freezer") != 0)
+				continue;
+
+			entry = ctrl->dirs[j];
+
+			snprintf(paux, sizeof(paux), "freezer/%s/freezer.state", entry->dir_name);
+
+			err = fd = openat(cgfd, paux, O_WRONLY);
+			if (fd >= 0) {
+				err = write(fd, "FROZEN", sizeof("FROZEN"));
+				close(fd);
+			}
+			if (err < 0) {
+				pr_err("Can't update %s (%d)\n", paux, err);
+				return -1;
+			}
+
+			return 0;
+		}
+	}
+
+	pr_err("Can't restore freezer cgroup state: root freezer cgroup not found\n");
+	return -1;
+}
+
 static int ctrl_dir_and_opt(CgControllerEntry *ctl, char *dir, int ds,
 		char *opt, int os)
 {
