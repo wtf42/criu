@@ -876,6 +876,76 @@ int dump_real_freezer_state(void)
 	return 0;
 }
 
+int restore_freezer_state(void)
+{
+	int fd, err, sfd, cgfd, i;
+	char state[8];
+	CgControllerEntry *freezer_ctrl = NULL;
+	char paux[PATH_MAX];
+	int ctrl_off;
+
+	sfd = get_service_fd(IMG_FD_OFF);
+	if (faccessat(sfd, freezer_state_file, F_OK, 0) < 0)
+		return 0;
+
+	fd = openat(sfd, freezer_state_file, O_RDONLY);
+	if (fd < 0) {
+		pr_err("Can't open freezer state dump file\n");
+		return -1;
+	}
+	err = read(fd, state, sizeof(state));
+	close(fd);
+	if (err < 0) {
+		pr_err("Can't load freezer state\n");
+		return -1;
+	}
+
+	if (strncmp(state, "FROZEN", sizeof("FROZEN") - 1) != 0)
+		return 0;
+
+	for (i = 0; i < n_controllers; i++) {
+		CgControllerEntry *ctrl = controllers[i];
+
+		if (cgroup_contains(ctrl->cnames, ctrl->n_cnames, "freezer")) {
+			freezer_ctrl = ctrl;
+			break;
+		}
+	}
+
+	if (!freezer_ctrl) {
+		pr_err("Can't restore freezer cgroup state: root freezer cgroup not found\n");
+		return -1;
+	}
+
+	/*
+	 * Here we rely on --freeze-cgroup option assumption that all tasks are in a
+	 * specified freezer group, so we need to freeze only one root freezer cgroup.
+	 */
+	BUG_ON(freezer_ctrl->n_dirs != 1);
+
+	cgfd = get_service_fd(CGROUP_YARD);
+	ctrl_off = ctrl_dir_and_opt(freezer_ctrl, paux, sizeof(paux), NULL, 0);
+
+	for (i = 0; i < freezer_ctrl->n_dirs; i++) {
+		CgroupDirEntry *entry = freezer_ctrl->dirs[i];
+
+		snprintf(paux + ctrl_off, sizeof(paux) - ctrl_off, "/%s/freezer.state", entry->dir_name);
+		fd = openat(cgfd, paux, O_WRONLY);
+		if (fd < 0) {
+			pr_err("Can't open %s\n", paux);
+			return -1;
+		}
+		err = write(fd, "FROZEN", sizeof("FROZEN"));
+		close(fd);
+		if (err < 0) {
+			pr_err("Can't update %s (%d)\n", paux, err);
+			return -1;
+		}
+	}
+
+	return 0;
+}
+
 static const char *special_cpuset_props[] = {
 	"cpuset.cpus",
 	"cpuset.mems",

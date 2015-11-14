@@ -12,6 +12,7 @@ int prepare_cgroup_properties(void);
 void fini_cgroup(void);
 
 int dump_real_freezer_state(void);
+int restore_freezer_state(void);
 
 struct cg_controller;
 
