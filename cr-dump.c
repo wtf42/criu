@@ -1534,6 +1534,10 @@ int cr_dump_tasks(pid_t pid)
 	if (ret)
 		goto err;
 
+	if (opts.freeze_cgroup)
+		if (dump_real_freezer_state())
+			goto err;
+
 	ret = cr_dump_shmem();
 	if (ret)
 		goto err;
