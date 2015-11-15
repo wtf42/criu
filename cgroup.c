@@ -17,6 +17,7 @@
 #include "imgset.h"
 #include "util-pie.h"
 #include "namespaces.h"
+#include "seize.h"
 #include "protobuf.h"
 #include "protobuf/core.pb-c.h"
 #include "protobuf/cgroup.pb-c.h"
@@ -850,6 +851,30 @@ static int ctrl_dir_and_opt(CgControllerEntry *ctl, char *dir, int ds,
 		opt[ooff - 1] = '\0';
 
 	return doff;
+}
+
+const char freezer_state_file[] = "freezer_state.txt";
+
+int dump_real_freezer_state(void)
+{
+	int fd, err;
+	const char *state = get_real_freezer_state();
+
+	fd = openat(get_service_fd(IMG_FD_OFF), freezer_state_file, O_WRONLY | O_CREAT);
+	if (fd < 0) {
+		pr_err("Can't open freezer state dump file\n");
+		return -1;
+	}
+
+	err = write(fd, state, strlen(state));
+	close(fd);
+
+	if (err < 0) {
+		pr_err("Can't save freezer state\n");
+		return -1;
+	}
+
+	return 0;
 }
 
 static const char *special_cpuset_props[] = {
