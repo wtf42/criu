@@ -100,6 +100,7 @@ static unsigned int n_sets;
 static CgSetEntry **rst_sets;
 static unsigned int n_controllers;
 static CgControllerEntry **controllers;
+static char *freezer_state;
 static char *cg_yard;
 static struct cg_set *root_cgset; /* Set root item lives in */
 static struct cg_set *criu_cgset; /* Set criu process lives in */
@@ -862,6 +863,60 @@ static int ctrl_dir_and_opt(CgControllerEntry *ctl, char *dir, int ds,
 	return doff;
 }
 
+int restore_freezer_state(void)
+{
+	int cgfd, i;
+	char paux[PATH_MAX];
+	int ctrl_off;
+	CgControllerEntry *freezer_ctrl = NULL;
+
+	if (!freezer_state || strcmp(freezer_state, "FROZEN") != 0)
+		return 0;
+
+	for (i = 0; i < n_controllers; i++) {
+		CgControllerEntry *ctrl = controllers[i];
+
+		if (cgroup_contains(ctrl->cnames, ctrl->n_cnames, "freezer")) {
+			freezer_ctrl = ctrl;
+			break;
+		}
+	}
+
+	if (!freezer_ctrl) {
+		pr_err("Can't restore freezer cgroup state: root freezer cgroup not found\n");
+		return -1;
+	}
+
+	/*
+	 * Here we rely on --freeze-cgroup option assumption that all tasks are in a
+	 * specified freezer group, so we need to freeze only one root freezer cgroup.
+	 */
+	BUG_ON(freezer_ctrl->n_dirs != 1);
+
+	cgfd = get_service_fd(CGROUP_YARD);
+	ctrl_off = ctrl_dir_and_opt(freezer_ctrl, paux, sizeof(paux), NULL, 0);
+
+	for (i = 0; i < freezer_ctrl->n_dirs; i++) {
+		int fd, err;
+		CgroupDirEntry *entry = freezer_ctrl->dirs[i];
+
+		snprintf(paux + ctrl_off, sizeof(paux) - ctrl_off, "/%s/freezer.state", entry->dir_name);
+		fd = openat(cgfd, paux, O_WRONLY);
+		if (fd < 0) {
+			pr_err("Can't open %s\n", paux);
+			return -1;
+		}
+		err = write(fd, "FROZEN", sizeof("FROZEN"));
+		close(fd);
+		if (err < 0) {
+			pr_err("Can't update %s (%d)\n", paux, err);
+			return -1;
+		}
+	}
+
+	return 0;
+}
+
 static const char *special_cpuset_props[] = {
 	"cpuset.cpus",
 	"cpuset.mems",
@@ -1340,6 +1395,7 @@ int prepare_cgroup(void)
 	rst_sets = ce->sets;
 	n_controllers = ce->n_controllers;
 	controllers = ce->controllers;
+	freezer_state = ce->freezer_state;
 
 	if (n_sets)
 		/*
