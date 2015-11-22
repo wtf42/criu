@@ -17,6 +17,7 @@
 #include "imgset.h"
 #include "util-pie.h"
 #include "namespaces.h"
+#include "seize.h"
 #include "protobuf.h"
 #include "protobuf/core.pb-c.h"
 #include "protobuf/cgroup.pb-c.h"
@@ -788,6 +789,14 @@ static int dump_sets(CgroupEntry *cg)
 	return 0;
 }
 
+static void dump_real_freezer_state(CgroupEntry *cg)
+{
+	if (opts.freeze_cgroup) {
+		cg->freezer_state = xstrdup(get_real_freezer_state());
+	}
+}
+
+
 int dump_cgroups(void)
 {
 	CgroupEntry cg = CGROUP_ENTRY__INIT;
@@ -816,6 +825,7 @@ int dump_cgroups(void)
 		return -1;
 	if (dump_controllers(&cg))
 		return -1;
+	dump_real_freezer_state(&cg);
 
 	pr_info("Writing CG image\n");
 	return pb_write_one(img_from_set(glob_imgset, CR_FD_CGROUP), &cg, PB_CGROUP);
