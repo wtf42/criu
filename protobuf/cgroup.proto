@@ -27,4 +27,5 @@ message cg_set_entry {
 message cgroup_entry {
 	repeated cg_set_entry		sets		= 1;
 	repeated cg_controller_entry	controllers	= 2;
+	optional cgroup_prop_entry	freezer_state	= 3;
 }
