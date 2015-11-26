@@ -100,6 +100,7 @@ static unsigned int n_sets;
 static CgSetEntry **rst_sets;
 static unsigned int n_controllers;
 static CgControllerEntry **controllers;
+static CgroupPropEntry *freezer_state;
 static char *cg_yard;
 static struct cg_set *root_cgset; /* Set root item lives in */
 static struct cg_set *criu_cgset; /* Set criu process lives in */
@@ -1077,6 +1078,43 @@ int prepare_cgroup_properties(void)
 	return 0;
 }
 
+int restore_freezer_state(void)
+{
+	char paux[PATH_MAX];
+	unsigned int i, off;
+	CgroupDirEntry *entry;
+	CgControllerEntry *freezer_ctrl = NULL;
+
+	if (!freezer_state)
+		return 0;
+
+	for (i = 0; i < n_controllers; i++) {
+		CgControllerEntry *ctrl = controllers[i];
+
+		if (cgroup_contains(ctrl->cnames, ctrl->n_cnames, "freezer")) {
+			freezer_ctrl = ctrl;
+			break;
+		}
+	}
+
+	if (!freezer_ctrl) {
+		pr_err("Can't restore freezer cgroup state: root freezer cgroup not found\n");
+		return -1;
+	}
+
+	/*
+	 * Here we rely on --freeze-cgroup option assumption that all tasks are in a
+	 * specified freezer cgroup hierarchy, so we need to freeze only one root freezer cgroup.
+	 */
+	BUG_ON(freezer_ctrl->n_dirs != 1);
+	entry = freezer_ctrl->dirs[0];
+
+	off = ctrl_dir_and_opt(freezer_ctrl, paux, sizeof(paux), NULL, 0);
+	off += snprintf(paux + off, sizeof(paux) - off, "/%s", entry->dir_name);
+
+	return restore_cgroup_prop(freezer_state, paux, off);
+}
+
 static int restore_special_cpuset_props(char *paux, size_t off, CgroupDirEntry *e)
 {
 	int i, j;
@@ -1358,6 +1396,7 @@ int prepare_cgroup(void)
 	rst_sets = ce->sets;
 	n_controllers = ce->n_controllers;
 	controllers = ce->controllers;
+	freezer_state = ce->freezer_state;
 
 	if (n_sets)
 		/*
