@@ -17,6 +17,7 @@
 #include "stats.h"
 #include "xmalloc.h"
 #include "util.h"
+#include "list.h"
 
 #define NR_ATTEMPTS 5
 
@@ -53,29 +54,109 @@ err:
 	return NULL;
 }
 
-static bool freezer_thawed;
+struct list_head freezer_states;
 
-static int freezer_restore_state(void)
+static int add_freezer_state(const char *path, const char *state)
+{
+	struct freezer_state *cg;
+
+	list_for_each_entry(cg, &freezer_states, list)
+		if (strcmp(cg->path, path) == 0)
+			return 0;
+
+	cg = xmalloc(sizeof(*cg));
+	if (!cg)
+		return -1;
+	cg->path = xstrdup(path);
+	if (!cg->path)
+		return -1;
+	cg->state = state;
+
+	list_add_tail(&cg->list, &freezer_states);
+
+	return 0;
+}
+
+static void free_all_freezer_states(void)
+{
+	struct freezer_state *cg, *t;
+
+	list_for_each_entry_safe(cg, t, &freezer_states, list) {
+		list_del(&cg->list);
+		xfree(cg->path);
+		xfree(cg);
+	}
+
+	INIT_LIST_HEAD(&freezer_states);
+}
+
+static const char *get_self_freezer_state(const char *path)
+{
+	int fd, ret;
+	char state[4];
+	char paux[PATH_MAX];
+
+	snprintf(paux, sizeof(paux), "%s/freezer.self_freezing", path);
+	fd = open(paux, O_RDONLY);
+	if (fd < 0) {
+		pr_perror("Unable to open %s", paux);
+		return NULL;
+	}
+
+	ret = read(fd, state, sizeof(state) - 1);
+	if (ret <= 0) {
+		pr_perror("Unable to get state for freezer cgroup %s", path);
+		goto err;
+	}
+	if (state[ret - 1] == '\n')
+		state[ret - 1] = 0;
+	else
+		state[ret] = 0;
+
+	if (strcmp(state, "1") == 0)
+		return frozen;
+	if (strcmp(state, "0") == 0)
+		return thawed;
+
+	pr_err("Unknown freezer state: %s\n", state);
+err:
+	close(fd);
+	return NULL;
+}
+
+static int write_freezer_state(const char *rel_path, const char *state)
 {
 	int fd;
 	char path[PATH_MAX];
 
-	if (!opts.freeze_cgroup || freezer_thawed)
-		return 0;
-
-	snprintf(path, sizeof(path), "%s/freezer.state", opts.freeze_cgroup);
-	fd = open(path, O_RDWR);
+	snprintf(path, sizeof(path), "%s%s/freezer.state", opts.freeze_cgroup, rel_path);
+	fd = open(path, O_WRONLY);
 	if (fd < 0) {
 		pr_perror("Unable to open %s", path);
 		return -1;
 	}
 
-	if (write(fd, frozen, sizeof(frozen)) != sizeof(frozen)) {
-		pr_perror("Unable to freeze tasks");
+	if (write(fd, state, strlen(state)) != strlen(state)) {
+		pr_perror("Unable to set freezer state %s for freezer cgroup %s%s",
+				state, opts.freeze_cgroup, rel_path);
 		close(fd);
 		return -1;
 	}
 	close(fd);
+	return 0;
+}
+
+static int restore_all_freezer_states(void)
+{
+	struct freezer_state *cg;
+
+	if (!opts.freeze_cgroup)
+		return 0;
+
+	list_for_each_entry(cg, &freezer_states, list)
+		if (write_freezer_state(cg->path, cg->state))
+			return -1;
+
 	return 0;
 }
 
@@ -84,6 +165,7 @@ static int seize_cgroup_tree(char *root_path, const char *state)
 	DIR *dir;
 	struct dirent *de;
 	char path[PATH_MAX];
+	const char *self_state;
 	FILE *f;
 
 	/*
@@ -129,6 +211,12 @@ static int seize_cgroup_tree(char *root_path, const char *state)
 	}
 	fclose(f);
 
+	self_state = get_self_freezer_state(root_path);
+	if (!self_state)
+		return -1;
+	if (add_freezer_state(root_path + strlen(opts.freeze_cgroup), self_state))
+		return -1;
+
 	dir = opendir(root_path);
 	if (!dir) {
 		pr_perror("Unable to open %s", root_path);
@@ -167,6 +255,9 @@ static int freeze_processes(void)
 	int i, fd, exit_code = -1;
 	char path[PATH_MAX];
 	const char *state = thawed;
+	bool root_thawed = false;
+
+	INIT_LIST_HEAD(&freezer_states);
 
 	snprintf(path, sizeof(path), "%s/freezer.state", opts.freeze_cgroup);
 	fd = open(path, O_RDWR);
@@ -180,7 +271,8 @@ static int freeze_processes(void)
 		return -1;
 	}
 	if (state == thawed) {
-		freezer_thawed = true;
+		root_thawed = true;
+		add_freezer_state("", thawed);
 
 		lseek(fd, 0, SEEK_SET);
 		if (write(fd, frozen, sizeof(frozen)) != sizeof(frozen)) {
@@ -231,16 +323,25 @@ static int freeze_processes(void)
 
 	exit_code = 0;
 err:
-	if (exit_code == 0 || freezer_thawed) {
+	if (exit_code == 0) {
+		struct freezer_state *cg;
+
+		close(fd);
+		list_for_each_entry(cg, &freezer_states, list)
+			if (write_freezer_state(cg->path, thawed))
+				return -1;
+	} else if (root_thawed) {
+		free_all_freezer_states();
+
 		lseek(fd, 0, SEEK_SET);
 		if (write(fd, thawed, sizeof(thawed)) != sizeof(thawed)) {
 			pr_perror("Unable to thaw tasks");
 			exit_code = -1;
 		}
-	}
-	if (close(fd)) {
-		pr_perror("Unable to thaw tasks");
-		return -1;
+		if (close(fd)) {
+			pr_perror("Unable to thaw tasks");
+			return -1;
+		}
 	}
 
 	return exit_code;
@@ -376,7 +477,7 @@ void pstree_switch_state(struct pstree_item *root_item, int st)
 	struct pstree_item *item = root_item;
 
 	if (st != TASK_DEAD)
-		freezer_restore_state();
+		restore_all_freezer_states();
 
 	pr_info("Unfreezing tasks into %d\n", st);
 	for_each_pstree_item(item)
@@ -384,6 +485,8 @@ void pstree_switch_state(struct pstree_item *root_item, int st)
 
 	if (st == TASK_DEAD)
 		pstree_wait(root_item);
+
+	free_all_freezer_states();
 }
 
 static pid_t item_ppid(const struct pstree_item *item)
