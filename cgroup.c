@@ -1047,8 +1047,20 @@ static int restore_cgroup_prop(const CgroupPropEntry * cg_prop_entry_p,
 	return 0;
 }
 
+typedef bool (*restore_prop_filter)(const CgroupPropEntry *cg_prop_entry_p);
+
+static bool filter_restore_freezer_state(const CgroupPropEntry *cg_prop_entry_p)
+{
+	return strcmp(cg_prop_entry_p->name, "freezer.state") == 0;
+}
+
+static bool filter_skip_freezer_state(const CgroupPropEntry *cg_prop_entry_p)
+{
+	return !filter_restore_freezer_state(cg_prop_entry_p);
+}
+
 static int prepare_cgroup_dir_properties(char *path, int off, CgroupDirEntry **ents,
-					 unsigned int n_ents)
+					 unsigned int n_ents, restore_prop_filter restore_filter)
 {
 	unsigned int i, j;
 
@@ -1062,12 +1074,15 @@ static int prepare_cgroup_dir_properties(char *path, int off, CgroupDirEntry **e
 		off2 += sprintf(path + off, "/%s", e->dir_name);
 		if (e->n_properties > 0) {
 			for (j = 0; j < e->n_properties; ++j) {
+				if (!restore_filter(e->properties[j]))
+					continue;
 				if (restore_cgroup_prop(e->properties[j], path, off2) < 0)
 					return -1;
 			}
 		}
 skip:
-		if (prepare_cgroup_dir_properties(path, off2, e->children, e->n_children) < 0)
+		if (prepare_cgroup_dir_properties(path, off2, e->children,
+						  e->n_children, restore_filter) < 0)
 			return -1;
 	}
 
@@ -1088,7 +1103,28 @@ int prepare_cgroup_properties(void)
 		}
 
 		off = ctrl_dir_and_opt(c, cname_path, sizeof(cname_path), NULL, 0);
-		if (prepare_cgroup_dir_properties(cname_path, off, c->dirs, c->n_dirs) < 0)
+		if (prepare_cgroup_dir_properties(cname_path, off, c->dirs,
+						  c->n_dirs, filter_skip_freezer_state) < 0)
+			return -1;
+	}
+
+	return 0;
+}
+
+int restore_freezer_states(void)
+{
+	char path[PATH_MAX];
+	unsigned int i, off;
+
+	for (i = 0; i < n_controllers; i++) {
+		CgControllerEntry *c = controllers[i];
+
+		if (!cgroup_contains(c->cnames, c->n_cnames, "freezer"))
+			continue;
+
+		off = ctrl_dir_and_opt(c, path, sizeof(path), NULL, 0);
+		if (prepare_cgroup_dir_properties(path, off, c->dirs, c->n_dirs,
+						filter_restore_freezer_state) < 0)
 			return -1;
 	}
 
