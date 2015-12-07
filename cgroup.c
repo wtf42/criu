@@ -17,6 +17,7 @@
 #include "imgset.h"
 #include "util-pie.h"
 #include "namespaces.h"
+#include "seize.h"
 #include "protobuf.h"
 #include "protobuf/core.pb-c.h"
 #include "protobuf/cgroup.pb-c.h"
@@ -493,6 +494,38 @@ out:
 	return exit_code;
 }
 
+static int add_freezer_state(struct cg_controller *controller)
+{
+	struct cgroup_dir *root_dir = NULL;
+	struct cgroup_prop *prop;
+
+	if (!list_empty(&controller->heads))
+		root_dir = list_first_entry(&controller->heads, struct cgroup_dir, siblings);
+	if (!root_dir) {
+		pr_err("Can't find root freezer cgroup directory\n");
+		return -1;
+	}
+	/*
+	 * Here we rely on --freeze-cgroup option assumption that all tasks are in a
+	 * specified freezer cgroup hierarchy, so we need to dump only one root freezer cgroup.
+	 */
+	BUG_ON(!list_is_last(&root_dir->siblings, &controller->heads));
+
+	prop = create_cgroup_prop("freezer.state");
+	if (!prop)
+		return -1;
+	prop->value = xstrdup(get_real_freezer_state());
+	if (!prop->value) {
+		free_cgroup_prop(prop);
+		return -1;
+	}
+
+	list_add_tail(&prop->list, &root_dir->properties);
+	root_dir->n_properties++;
+
+	return 0;
+}
+
 static int collect_cgroups(struct list_head *ctls)
 {
 	struct cg_ctl *cc;
@@ -563,6 +596,11 @@ static int collect_cgroups(struct list_head *ctls)
 			pr_perror("failed walking %s for empty cgroups", path);
 
 		close_safe(&fd);
+
+		if (opts.freeze_cgroup && !strcmp(cc->name, "freezer") &&
+				add_freezer_state(current_controller)) {
+			return -1;
+		}
 
 		if (ret < 0)
 			return ret;
