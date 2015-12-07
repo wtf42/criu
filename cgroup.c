@@ -17,6 +17,7 @@
 #include "imgset.h"
 #include "util-pie.h"
 #include "namespaces.h"
+#include "seize.h"
 #include "protobuf.h"
 #include "protobuf/core.pb-c.h"
 #include "protobuf/cgroup.pb-c.h"
@@ -76,6 +77,7 @@ static const char *blkio_props[] = {
 };
 
 static const char *freezer_props[] = {
+	"freezer.state",
 	"notify_on_release",
 	NULL
 };
@@ -334,6 +336,27 @@ static int read_cgroup_prop(struct cgroup_prop *property, const char *fullpath)
 	return 0;
 }
 
+static int read_freezer_state(struct cgroup_prop *property, const char *fullpath,
+			      const char *path, const struct cg_controller *controller) {
+	struct cgroup_dir *root_dir;
+	bool is_root = false;
+
+	list_for_each_entry(root_dir, &controller->heads, siblings) {
+		if (strcmp(path, root_dir->path)) {
+			is_root = true;
+			break;
+		}
+	}
+	if (!is_root)
+		return read_cgroup_prop(property, fullpath);
+
+	property->value = strdup(get_real_freezer_state());
+	if (!property->value)
+		return -1;
+
+	return 0;
+}
+
 static struct cgroup_prop *create_cgroup_prop(const char *name)
 {
 	struct cgroup_prop *property;
@@ -418,7 +441,13 @@ static int add_cgroup_properties(const char *fpath, struct cgroup_dir *ncd,
 				return -1;
 			}
 
-			if (read_cgroup_prop(prop, buf) < 0) {
+			if (opts.freeze_cgroup && !strcmp(prop_arr[j], "freezer.state")) {
+				if (read_freezer_state(prop, buf, ncd->path, controller)) {
+					free_cgroup_prop(prop);
+					free_all_cgroup_props(ncd);
+					return -1;
+				}
+			} else if (read_cgroup_prop(prop, buf) < 0) {
 				free_cgroup_prop(prop);
 				free_all_cgroup_props(ncd);
 				return -1;
