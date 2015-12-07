@@ -979,6 +979,8 @@ int prepare_task_cgroup(struct pstree_item *me)
 	return move_in_cgroup(se);
 }
 
+static void free_freezer_states(void);
+
 void fini_cgroup(void)
 {
 	if (!cg_yard)
@@ -989,6 +991,7 @@ void fini_cgroup(void)
 	rmdir(cg_yard);
 	xfree(cg_yard);
 	cg_yard = NULL;
+	free_freezer_states();
 }
 
 static int restore_cgroup_prop(const CgroupPropEntry * cg_prop_entry_p,
@@ -1030,6 +1033,52 @@ static int restore_cgroup_prop(const CgroupPropEntry * cg_prop_entry_p,
 	return 0;
 }
 
+struct freezer_state {
+	struct list_head      list;
+
+	const CgroupPropEntry *entry;
+	char                  path[PATH_MAX];
+	size_t                path_len;
+};
+static LIST_HEAD(freezer_states);
+
+int restore_freezer_states(void)
+{
+	struct freezer_state *cg;
+
+	list_for_each_entry(cg, &freezer_states, list)
+		if (restore_cgroup_prop(cg->entry, cg->path, cg->path_len))
+			return -1;
+
+	return 0;
+}
+
+static int save_freezer_state(const CgroupPropEntry *entry, char *path, size_t path_len)
+{
+	struct freezer_state *cg;
+
+	cg = xmalloc(sizeof(*cg));
+	if (!cg)
+		return -1;
+	cg->entry = entry;
+	strncpy(cg->path, path, path_len);
+	cg->path_len = path_len;
+
+	list_add_tail(&cg->list, &freezer_states);
+
+	return 0;
+}
+
+static void free_freezer_states(void)
+{
+	struct freezer_state *cg, *t;
+	list_for_each_entry_safe(cg, t, &freezer_states, list) {
+		list_del(&cg->list);
+		xfree(cg);
+	}
+	INIT_LIST_HEAD(&freezer_states);
+}
+
 static int prepare_cgroup_dir_properties(char *path, int off, CgroupDirEntry **ents,
 					 unsigned int n_ents)
 {
@@ -1045,6 +1094,11 @@ static int prepare_cgroup_dir_properties(char *path, int off, CgroupDirEntry **e
 		off2 += sprintf(path + off, "/%s", e->dir_name);
 		if (e->n_properties > 0) {
 			for (j = 0; j < e->n_properties; ++j) {
+				if (!strcmp(e->properties[j]->name, "freezer.state")) {
+					if (save_freezer_state(e->properties[j], path, off2))
+						return -1;
+					continue; /* skip restore now */
+				}
 				if (restore_cgroup_prop(e->properties[j], path, off2) < 0)
 					return -1;
 			}
