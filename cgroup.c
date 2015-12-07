@@ -1039,6 +1039,43 @@ static int restore_cgroup_prop(const CgroupPropEntry * cg_prop_entry_p,
 	return 0;
 }
 
+int restore_freezer_state(void)
+{
+	char paux[PATH_MAX];
+	unsigned int i, off;
+	CgControllerEntry *freezer_ctrl = NULL;
+	CgroupDirEntry *entry;
+
+	for (i = 0; i < n_controllers; i++) {
+		CgControllerEntry *ctrl = controllers[i];
+
+		if (cgroup_contains(ctrl->cnames, ctrl->n_cnames, "freezer")) {
+			freezer_ctrl = ctrl;
+			break;
+		}
+	}
+	if (!freezer_ctrl)
+		return 0;
+
+	/*
+	 * Here we rely on --freeze-cgroup option assumption that all tasks are in a
+	 * specified freezer cgroup hierarchy, so we need to freeze only one root freezer cgroup.
+	 */
+	BUG_ON(freezer_ctrl->n_dirs != 1);
+	entry = freezer_ctrl->dirs[0];
+
+	off = ctrl_dir_and_opt(freezer_ctrl, paux, sizeof(paux), NULL, 0);
+	off += snprintf(paux + off, sizeof(paux) - off, "/%s", entry->dir_name);
+
+	for (i = 0; i < entry->n_properties; ++i) {
+		if (strcmp(entry->properties[i]->name, "freezer.state") == 0 &&
+				restore_cgroup_prop(entry->properties[i], paux, off) < 0)
+			return -1;
+	}
+
+	return 0;
+}
+
 static int prepare_cgroup_dir_properties(char *path, int off, CgroupDirEntry **ents,
 					 unsigned int n_ents)
 {
@@ -1054,6 +1091,8 @@ static int prepare_cgroup_dir_properties(char *path, int off, CgroupDirEntry **e
 		off2 += sprintf(path + off, "/%s", e->dir_name);
 		if (e->n_properties > 0) {
 			for (j = 0; j < e->n_properties; ++j) {
+				if (!strcmp(e->properties[j]->name, "freezer.state"))
+					continue; /* skip restore now */
 				if (restore_cgroup_prop(e->properties[j], path, off2) < 0)
 					return -1;
 			}
