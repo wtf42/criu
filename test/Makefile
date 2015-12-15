@@ -42,6 +42,7 @@ zdtm-iter: zdtm-tst-list
 zdtm-freezer:
 	ZDTM_ARGS="--freeze-cgroup /sys/fs/cgroup/freezer/test -i 3" $(MAKE) -f Makefile.zdtm transition/thread-bomb
 	ZDTM_ARGS="--freeze-cgroup /sys/fs/cgroup/freezer/test -d --frozen" $(MAKE) -f Makefile.zdtm transition/thread-bomb
+	ZDTM_ARGS="--freeze-cgroup /sys/fs/cgroup/freezer/test --frozen --check-frozen" $(MAKE) -f Makefile.zdtm transition/thread-bomb
 
 .PHONY: zdtm
 

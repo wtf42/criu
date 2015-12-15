@@ -812,9 +812,14 @@ EOF
 			fi
 			[ -n "$snappdir" ] && cpt_args="$cpt_args --prev-images-dir=$snappdir"
 		fi
+
 		if [ -n "$FREEZE_CGROUP" ]; then
-			cpt_args="$cpt_args --freeze-cgroup $FREEZE_CGROUP --manage-cgroups"
-			rst_args="$rst_args --manage-cgroups"
+			cpt_args="$cpt_args --freeze-cgroup $FREEZE_CGROUP --manage-cgroups=full"
+			rst_args="$rst_args --manage-cgroups=full"
+		fi
+
+		if [ -n "$FREEZER_CHECK_FROZEN" ]; then
+			rst_args="$rst_args --restore-detached"
 		fi
 
 		[ -n "$dump_only" ] && cpt_args="$cpt_args $POSTDUMP"
@@ -909,6 +914,14 @@ EOF
 			cat $ddump/restore.log* | grep Error
 
 			[ -n "$PIDNS" ] && PID=`cat $TPID`
+
+			if [ -n "$FREEZE_CGROUP" ]; then
+				freezer_state=`cat $FREEZE_CGROUP/freezer.state`
+				echo THAWED > $FREEZE_CGROUP/freezer.state
+				if  [ -n "$FREEZER_CHECK_FROZEN" ]; then
+					[ "$freezer_state" != THAWED ] || return 2
+				fi
+			fi
 
 			expr $tdir : ".*static$" > /dev/null && {
 				save_fds $PID  $ddump/restore.fd
@@ -1137,6 +1150,10 @@ while :; do
 		;;
 	  --frozen)
 		FREEZER_STATE=FROZEN
+		shift
+		;;
+	  --check-frozen)
+		FREEZER_CHECK_FROZEN=1
 		shift
 		;;
 	  -g)
