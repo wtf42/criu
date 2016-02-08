@@ -369,10 +369,13 @@ class zdtm_test:
 		self.__flavor.fini()
 
 	def stop(self):
+		freezer_fail = not self.__freezer.check_state()
 		self.__freezer.thaw()
 		self.getpid() # Read the pid from pidfile back
 		self.kill(signal.SIGTERM)
 
+		if freezer_fail:
+			raise test_fail_exc("freezer state check")
 		res = tail(self.__name + '.out')
 		if not 'PASS' in res.split():
 			raise test_fail_exc("result check")
@@ -851,6 +854,9 @@ class noop_freezer:
 	def attach(self):
 		pass
 
+	def check_state(self):
+		return True
+
 	def freeze(self):
 		pass
 
@@ -865,9 +871,10 @@ class noop_freezer:
 
 
 class cg_freezer:
-	def __init__(self, path, state):
+	def __init__(self, path, state, check_state):
 		self.__path = '/sys/fs/cgroup/freezer/' + path
 		self.__state = state
+		self.__check_state = check_state
 		self.kernel = True
 
 	def attach(self):
@@ -880,6 +887,13 @@ class cg_freezer:
 		with open(self.__path + '/freezer.state', 'w') as f:
 			f.write(state)
 
+	def __get_state(self):
+		return open(self.__path + '/freezer.state').read()
+
+	def check_state(self):
+		return not self.__check_state or \
+			self.__get_state().startswith('THAWED') == self.__state.startswith('t')
+
 	def freeze(self):
 		if self.__state.startswith('f'):
 			self.__set_state('FROZEN')
@@ -889,10 +903,11 @@ class cg_freezer:
 			self.__set_state('THAWED')
 
 	def getdopts(self):
-		return [ '--freeze-cgroup', self.__path, '--manage-cgroups' ]
+		return [ '--freeze-cgroup', self.__path, \
+			 '--manage-cgroups' + ('=full' if self.__check_state else '') ]
 
 	def getropts(self):
-		return [ '--manage-cgroups' ]
+		return [ '--manage-cgroups' + ('=full' if self.__check_state else '') ]
 
 
 def get_freezer(desc):
@@ -900,7 +915,7 @@ def get_freezer(desc):
 		return noop_freezer()
 
 	fd = desc.split(':')
-	fr = cg_freezer(path = fd[0], state = fd[1])
+	fr = cg_freezer(path = fd[0], state = fd[1], check_state = fd[2:] or None)
 	return fr
 
 
@@ -1365,7 +1380,7 @@ rp.add_argument("--iters", help = "Do CR cycle several times before check (n[:pa
 rp.add_argument("--fault", help = "Test fault injection")
 rp.add_argument("--sat", help = "Generate criu strace-s for sat tool (restore is fake, images are kept)", action = 'store_true')
 rp.add_argument("--sbs", help = "Do step-by-step execution, asking user for keypress to continue", action = 'store_true')
-rp.add_argument("--freezecg", help = "Use freeze cgroup (path:state)")
+rp.add_argument("--freezecg", help = "Use freeze cgroup (path:state[:check_state])")
 rp.add_argument("--user", help = "Run CRIU as regular user", action = 'store_true')
 
 rp.add_argument("--page-server", help = "Use page server dump", action = 'store_true')

@@ -36,6 +36,8 @@ zdtm-iter:
 zdtm-freezer:
 	./zdtm.py run --test zdtm/live/transition/thread-bomb --pre 3 --freezecg zdtm:t
 	./zdtm.py run --test zdtm/live/transition/thread-bomb --pre 3 --freezecg zdtm:f
+	./zdtm.py run --test zdtm/live/transition/thread-bomb --freezecg zdtm:f:
+	./zdtm.py run --test zdtm/live/transition/thread-bomb --freezecg zdtm:t:
 
 .PHONY: zdtm
 
